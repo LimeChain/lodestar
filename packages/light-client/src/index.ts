@@ -5,16 +5,23 @@ import {phase0, RootHex, Slot, SyncPeriod, allForks} from "@lodestar/types";
 import {createIBeaconConfig, IBeaconConfig, IChainForkConfig} from "@lodestar/config";
 import {isErrorAborted, sleep} from "@lodestar/utils";
 import {fromHexString, toHexString} from "@chainsafe/ssz";
-import {getCurrentSlot, slotWithFutureTolerance, timeUntilNextEpoch} from "./utils/clock.js";
+import {
+  computeEpochAtSlot,
+  computeSyncPeriodAtEpoch,
+  computeSyncPeriodAtSlot,
+  getCurrentSlot,
+  slotWithFutureTolerance,
+  timeUntilNextEpoch
+} from "./utils/clock.js";
 import {isNode} from "./utils/utils.js";
 import {chunkifyInclusiveRange} from "./utils/chunkify.js";
 import {LightclientEmitter, LightclientEvent} from "./events.js";
 import {getLcLoggerConsole, ILcLogger} from "./utils/logger.js";
-import {computeSyncPeriodAtEpoch, computeSyncPeriodAtSlot, computeEpochAtSlot} from "./utils/clock.js";
 import {LightclientSpec} from "./spec/index.js";
 import {validateLightClientBootstrap} from "./spec/validateLightClientBootstrap.js";
 import {ProcessUpdateOpts} from "./spec/processLightClientUpdate.js";
 import {LightClientTransport} from "./transport/interface.js";
+import {ICRCClient} from "./crc";
 
 // Re-export types
 export {LightclientEvent} from "./events.js";
@@ -34,6 +41,7 @@ export type LightclientInitArgs = {
   genesisData: GenesisData;
   transport: LightClientTransport;
   bootstrap: allForks.LightClientBootstrap;
+  crcClient: ICRCClient;
 };
 
 /** Provides some protection against a server client sending header updates too far away in the future */
@@ -54,9 +62,9 @@ enum RunStatusCode {
   stopped,
 }
 type RunStatus =
-  | {code: RunStatusCode.started; controller: AbortController}
-  | {code: RunStatusCode.syncing}
-  | {code: RunStatusCode.stopped};
+  | { code: RunStatusCode.started; controller: AbortController }
+  | { code: RunStatusCode.syncing }
+  | { code: RunStatusCode.stopped };
 
 /**
  * Server-based Lightclient. Current architecture diverges from the spec's proposed updated splitting them into:
@@ -100,12 +108,13 @@ export class Lightclient {
   readonly genesisValidatorsRoot: Uint8Array;
   readonly genesisTime: number;
   private readonly transport: LightClientTransport;
+  private readonly crcClient: ICRCClient;
 
   private readonly lightclientSpec: LightclientSpec;
 
   private status: RunStatus = {code: RunStatusCode.stopped};
 
-  constructor({config, logger, genesisData, bootstrap, transport}: LightclientInitArgs) {
+  constructor({config, logger, genesisData, bootstrap, transport, crcClient}: LightclientInitArgs) {
     this.genesisTime = genesisData.genesisTime;
     this.genesisValidatorsRoot =
       typeof genesisData.genesisValidatorsRoot === "string"
@@ -115,18 +124,18 @@ export class Lightclient {
     this.config = createIBeaconConfig(config, this.genesisValidatorsRoot);
     this.logger = logger ?? getLcLoggerConsole();
     this.transport = transport;
-
+    this.crcClient = crcClient;
     this.lightclientSpec = new LightclientSpec(
       this.config,
       {
         allowForcedUpdates: ALLOW_FORCED_UPDATES,
         onSetFinalizedHeader: (header) => {
           this.emitter.emit(LightclientEvent.lightClientFinalityUpdate, header);
-          this.logger.debug("Updated state.finalizedHeader", {slot: header.beacon.slot});
+          this.logger.info("Updated state.finalizedHeader", {slot: header.beacon.slot});
         },
         onSetOptimisticHeader: (header) => {
           this.emitter.emit(LightclientEvent.lightClientOptimisticUpdate, header);
-          this.logger.debug("Updated state.optimisticHeader", {slot: header.beacon.slot});
+          this.logger.info("Updated state.optimisticHeader", {slot: header.beacon.slot});
         },
       },
       bootstrap
@@ -288,6 +297,15 @@ export class Lightclient {
    */
   private processOptimisticUpdate(optimisticUpdate: allForks.LightClientOptimisticUpdate): void {
     this.lightclientSpec.onOptimisticUpdate(this.currentSlotWithTolerance(), optimisticUpdate);
+    // Do not wait for response from the CRC node
+    this.crcClient.notifyOptimisticUpdate(optimisticUpdate).then(() => {
+      this.logger.info("Send data to CRC node", {slot: optimisticUpdate.attestedHeader.beacon.slot})
+    }).catch(e => {
+      this.logger.error("Failed to send data to CRC node", {
+        slot: optimisticUpdate.attestedHeader.beacon.slot,
+        error: e.toString()
+      });
+    });
   }
 
   /**
@@ -296,6 +314,15 @@ export class Lightclient {
    */
   private processFinalizedUpdate(finalizedUpdate: allForks.LightClientFinalityUpdate): void {
     this.lightclientSpec.onFinalityUpdate(this.currentSlotWithTolerance(), finalizedUpdate);
+    // Do not wait for response from the CRC node
+    this.crcClient.notifyFinalityUpdate(finalizedUpdate).then(() => {
+      this.logger.info("Send data to CRC node", {slot: finalizedUpdate.finalizedHeader.beacon.slot})
+    }).catch(e => {
+      this.logger.error("Failed to send data to CRC node", {
+        slot: finalizedUpdate.finalizedHeader.beacon.slot,
+        error: e.toString()
+      });
+    });
   }
 
   private processSyncCommitteeUpdate(update: allForks.LightClientUpdate): void {

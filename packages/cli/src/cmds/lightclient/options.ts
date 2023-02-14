@@ -4,6 +4,7 @@ import {ICliCommandOptions, ILogArgs} from "../../util/index.js";
 export type ILightClientArgs = ILogArgs & {
   beaconApiUrl: string;
   checkpointRoot: string;
+  crcApiUrl: string;
 };
 
 export const lightclientOptions: ICliCommandOptions<ILightClientArgs> = {
@@ -18,4 +19,9 @@ export const lightclientOptions: ICliCommandOptions<ILightClientArgs> = {
     type: "string",
     require: true,
   },
+  crcApiUrl: {
+    description: "Url to a CRC relay node",
+    type: "string",
+    require: true
+  }
 };
