@@ -8,6 +8,7 @@ import {getGlobalPaths} from "../../paths/global.js";
 import {IGlobalArgs} from "../../options/index.js";
 import {getCliLogger} from "../../util/index.js";
 import {ILightClientArgs} from "./options.js";
+import {CRCClient} from "@lodestar/light-client/crc";
 
 export async function lightclientHandler(args: ILightClientArgs & IGlobalArgs): Promise<void> {
   const {config, network} = getBeaconConfigFromArgs(args);
@@ -28,6 +29,7 @@ export async function lightclientHandler(args: ILightClientArgs & IGlobalArgs): 
     },
     checkpointRoot: fromHexString(checkpointRoot),
     transport: new LightClientRestTransport(api),
+    crcClient: new CRCClient(args.crcApiUrl)
   });
 
   client.start();
