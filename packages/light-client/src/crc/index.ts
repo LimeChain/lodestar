@@ -1,10 +1,10 @@
-import {altair} from "@lodestar/types";
+import {ssz, allForks} from "@lodestar/types";
 import fetch from "cross-fetch";
 
 export interface ICRCClient {
-	notifyFinalityUpdate(finalizedUpdate: altair.LightClientFinalityUpdate): Promise<void>
+	notifyFinalityUpdate(finalizedUpdate: allForks.LightClientFinalityUpdate): Promise<void>
 
-	notifyOptimisticUpdate(optimisticUpdate: altair.LightClientOptimisticUpdate): Promise<void>
+	notifyOptimisticUpdate(optimisticUpdate: allForks.LightClientOptimisticUpdate): Promise<void>
 }
 
 export class CRCClient implements ICRCClient {
@@ -17,21 +17,21 @@ export class CRCClient implements ICRCClient {
 		this.baseUrl = baseUrl;
 	}
 
-	async notifyOptimisticUpdate(optimisticUpdate: altair.LightClientOptimisticUpdate): Promise<void> {
-		await this.callCRCNode(this.optimisticEndpoint, optimisticUpdate);
+	async notifyOptimisticUpdate(optimisticUpdate: allForks.LightClientOptimisticUpdate): Promise<void> {
+		await this.callCRCNode(this.optimisticEndpoint, optimisticUpdate, ssz.altair.LightClientOptimisticUpdate);
 	}
 
-	async notifyFinalityUpdate(finalizedUpdate: altair.LightClientFinalityUpdate): Promise<void> {
-		await this.callCRCNode(this.finalityEndpoint, finalizedUpdate);
+	async notifyFinalityUpdate(finalizedUpdate: allForks.LightClientFinalityUpdate): Promise<void> {
+		await this.callCRCNode(this.finalityEndpoint, finalizedUpdate, ssz.altair.LightClientFinalityUpdate);
 	}
 
-	private async callCRCNode(endpoint: string, update: altair.LightClientOptimisticUpdate | altair.LightClientFinalityUpdate): Promise<void> {
+	private async callCRCNode(endpoint: string, update: allForks.LightClientOptimisticUpdate | allForks.LightClientFinalityUpdate, type: any): Promise<void> {
 		await fetch(this.baseUrl + endpoint, {
 			method: "POST",
 			headers: {
 				'Content-Type': 'application/json'
 			},
-			body: JSON.stringify(update)
+			body: JSON.stringify(type.toJson(update))
 		});
 	}
 
